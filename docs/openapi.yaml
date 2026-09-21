@@ -1,0 +1,207 @@
+openapi: 3.0.3
+info:
+  title: RepoScope API
+  version: 1.0.0
+  description: REST API для поиска и анализа публичных GitHub-репозиториев и управления избранным.
+  license:
+    name: MIT
+    url: https://opensource.org/license/mit
+servers:
+  - url: http://localhost:8080/api/v1
+    description: Локальный backend
+security: []
+tags:
+  - name: System
+    description: Состояние приложения и внешних лимитов.
+  - name: Repositories
+    description: Поиск и аналитические представления GitHub-репозиториев.
+  - name: Favorites
+    description: Постоянная коллекция избранных репозиториев.
+paths:
+  /health:
+    get:
+      tags: [System]
+      summary: Liveness-проверка процесса
+      operationId: health
+      responses:
+        '200': {description: Процесс работает, content: {application/json: {schema: {$ref: '#/components/schemas/Status'}}}}
+  /ready:
+    get:
+      tags: [System]
+      summary: Readiness-проверка PostgreSQL
+      operationId: ready
+      responses:
+        '200': {description: Сервис готов, content: {application/json: {schema: {$ref: '#/components/schemas/Status'}}}}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
+  /rate-limit:
+    get:
+      tags: [System]
+      summary: Текущий лимит GitHub API
+      operationId: rateLimit
+      responses:
+        '200': {description: Лимиты core и search, content: {application/json: {schema: {$ref: '#/components/schemas/RateLimit'}}}}
+        '429': {$ref: '#/components/responses/RateLimited'}
+        '502': {$ref: '#/components/responses/BadGateway'}
+  /repositories/search:
+    get:
+      tags: [Repositories]
+      summary: Поиск публичных репозиториев
+      operationId: searchRepositories
+      parameters:
+        - {in: query, name: q, required: true, description: Поисковая строка (2–256 символов), schema: {type: string, minLength: 2, maxLength: 256}, example: web framework}
+        - {in: query, name: language, schema: {type: string}, example: Go}
+        - {in: query, name: sort, schema: {type: string, enum: [stars, forks, help-wanted-issues, updated], default: stars}}
+        - {in: query, name: order, schema: {type: string, enum: [asc, desc], default: desc}}
+        - {$ref: '#/components/parameters/Page'}
+        - {$ref: '#/components/parameters/PerPage'}
+      responses:
+        '200': {description: Страница результатов, content: {application/json: {schema: {$ref: '#/components/schemas/SearchResult'}}}}
+        '422': {$ref: '#/components/responses/ValidationError'}
+        '429': {$ref: '#/components/responses/RateLimited'}
+        '502': {$ref: '#/components/responses/BadGateway'}
+  /repositories/{owner}/{repo}:
+    get:
+      tags: [Repositories]
+      summary: Карточка репозитория с Repo Health Score
+      operationId: getRepository
+      parameters: [{$ref: '#/components/parameters/Owner'}, {$ref: '#/components/parameters/Repo'}]
+      responses:
+        '200': {description: Репозиторий, content: {application/json: {schema: {$ref: '#/components/schemas/Repository'}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/ValidationError'}
+        '429': {$ref: '#/components/responses/RateLimited'}
+  /repositories/{owner}/{repo}/languages:
+    get:
+      tags: [Repositories]
+      summary: Байты кода по языкам
+      operationId: getLanguages
+      parameters: [{$ref: '#/components/parameters/Owner'}, {$ref: '#/components/parameters/Repo'}]
+      responses:
+        '200': {description: Карта языков, content: {application/json: {schema: {type: object, required: [languages], properties: {languages: {type: object, additionalProperties: {type: integer, format: int64}}}}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '429': {$ref: '#/components/responses/RateLimited'}
+  /repositories/{owner}/{repo}/contributors:
+    get:
+      tags: [Repositories]
+      summary: Участники репозитория
+      operationId: getContributors
+      parameters: [{$ref: '#/components/parameters/Owner'}, {$ref: '#/components/parameters/Repo'}, {$ref: '#/components/parameters/Page'}, {$ref: '#/components/parameters/PerPage'}]
+      responses:
+        '200': {description: Страница участников, content: {application/json: {schema: {$ref: '#/components/schemas/ContributorPage'}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '429': {$ref: '#/components/responses/RateLimited'}
+  /repositories/{owner}/{repo}/issues:
+    get:
+      tags: [Repositories]
+      summary: Issues без pull requests
+      operationId: getIssues
+      parameters: [{$ref: '#/components/parameters/Owner'}, {$ref: '#/components/parameters/Repo'}, {$ref: '#/components/parameters/Page'}, {$ref: '#/components/parameters/PerPage'}]
+      responses:
+        '200': {description: Страница issues, content: {application/json: {schema: {$ref: '#/components/schemas/IssuePage'}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '429': {$ref: '#/components/responses/RateLimited'}
+  /repositories/{owner}/{repo}/releases:
+    get:
+      tags: [Repositories]
+      summary: Последние релизы
+      operationId: getReleases
+      parameters: [{$ref: '#/components/parameters/Owner'}, {$ref: '#/components/parameters/Repo'}, {$ref: '#/components/parameters/Page'}, {$ref: '#/components/parameters/PerPage'}]
+      responses:
+        '200': {description: Страница релизов, content: {application/json: {schema: {$ref: '#/components/schemas/ReleasePage'}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '429': {$ref: '#/components/responses/RateLimited'}
+  /favorites:
+    get:
+      tags: [Favorites]
+      summary: Список избранного
+      operationId: listFavorites
+      responses:
+        '200': {description: Избранное, content: {application/json: {schema: {type: object, required: [items, count], properties: {items: {type: array, items: {$ref: '#/components/schemas/Favorite'}}, count: {type: integer}}}}}}
+        '500': {$ref: '#/components/responses/InternalError'}
+    post:
+      tags: [Favorites]
+      summary: Добавить публичный репозиторий в избранное
+      operationId: createFavorite
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CreateFavorite'}
+            example: {owner: golang, repo: go}
+      responses:
+        '201':
+          description: Создано. Заголовок Location содержит URI ресурса.
+          headers: {Location: {schema: {type: string}, example: /api/v1/favorites/golang/go}}
+          content: {application/json: {schema: {$ref: '#/components/schemas/Favorite'}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {description: Дубликат, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+        '422': {$ref: '#/components/responses/ValidationError'}
+        '429': {$ref: '#/components/responses/RateLimited'}
+        '500': {$ref: '#/components/responses/InternalError'}
+  /favorites/{owner}/{repo}:
+    delete:
+      tags: [Favorites]
+      summary: Удалить из избранного
+      operationId: deleteFavorite
+      parameters: [{$ref: '#/components/parameters/Owner'}, {$ref: '#/components/parameters/Repo'}]
+      responses:
+        '204': {description: Удалено, content: {}}
+        '404': {description: Запись не найдена, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+        '422': {$ref: '#/components/responses/ValidationError'}
+        '500': {$ref: '#/components/responses/InternalError'}
+components:
+  parameters:
+    Owner: {in: path, name: owner, required: true, schema: {type: string, minLength: 1, maxLength: 100}, example: golang}
+    Repo: {in: path, name: repo, required: true, schema: {type: string, minLength: 1, maxLength: 100}, example: go}
+    Page: {in: query, name: page, schema: {type: integer, minimum: 1, maximum: 100, default: 1}}
+    PerPage: {in: query, name: per_page, schema: {type: integer, minimum: 1, maximum: 100, default: 20}}
+  responses:
+    BadRequest: {description: Некорректный JSON, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+    ValidationError: {description: Ошибка валидации, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+    NotFound: {description: Ресурс GitHub не найден, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+    RateLimited: {description: GitHub вернул 403/429 из-за лимита, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+    BadGateway: {description: Ошибка upstream GitHub, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+    InternalError: {description: Внутренняя ошибка, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+    ServiceUnavailable: {description: PostgreSQL недоступен, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+  schemas:
+    Status: {type: object, additionalProperties: {type: string}, example: {status: ok, service: reposcope-api}}
+    Owner: {type: object, required: [login, avatar_url, html_url], properties: {login: {type: string}, avatar_url: {type: string, format: uri}, html_url: {type: string, format: uri}}}
+    License: {type: object, properties: {name: {type: string}, spdx_id: {type: string}}}
+    Repository:
+      type: object
+      required: [id, name, full_name, description, html_url, stargazers_count, forks_count, open_issues_count, owner]
+      properties:
+        id: {type: integer, format: int64}
+        name: {type: string}
+        full_name: {type: string}
+        description: {type: string}
+        html_url: {type: string, format: uri}
+        homepage: {type: string}
+        language: {type: string}
+        stargazers_count: {type: integer}
+        forks_count: {type: integer}
+        open_issues_count: {type: integer}
+        default_branch: {type: string}
+        archived: {type: boolean}
+        topics: {type: array, items: {type: string}}
+        owner: {$ref: '#/components/schemas/Owner'}
+        license: {$ref: '#/components/schemas/License'}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+        pushed_at: {type: string, format: date-time, nullable: true}
+        health_score: {type: integer, minimum: 0, maximum: 100}
+        health_summary: {type: string, enum: [активный, стабильный, требует внимания]}
+    SearchResult: {type: object, required: [items, total_count, page, per_page, total_pages], properties: {items: {type: array, items: {$ref: '#/components/schemas/Repository'}}, total_count: {type: integer}, page: {type: integer}, per_page: {type: integer}, total_pages: {type: integer}}}
+    Contributor: {type: object, properties: {login: {type: string}, avatar_url: {type: string, format: uri}, html_url: {type: string, format: uri}, contributions: {type: integer}}}
+    Issue: {type: object, properties: {number: {type: integer}, title: {type: string}, state: {type: string}, html_url: {type: string, format: uri}, user: {$ref: '#/components/schemas/Owner'}, labels: {type: array, items: {type: object, properties: {name: {type: string}, color: {type: string}}}}, created_at: {type: string, format: date-time}, updated_at: {type: string, format: date-time}}}
+    Release: {type: object, properties: {id: {type: integer, format: int64}, name: {type: string}, tag_name: {type: string}, html_url: {type: string, format: uri}, draft: {type: boolean}, prerelease: {type: boolean}, published_at: {type: string, format: date-time, nullable: true}}}
+    ContributorPage: {allOf: [{$ref: '#/components/schemas/PageMeta'}, {type: object, properties: {items: {type: array, items: {$ref: '#/components/schemas/Contributor'}}}}]}
+    IssuePage: {allOf: [{$ref: '#/components/schemas/PageMeta'}, {type: object, properties: {items: {type: array, items: {$ref: '#/components/schemas/Issue'}}}}]}
+    ReleasePage: {allOf: [{$ref: '#/components/schemas/PageMeta'}, {type: object, properties: {items: {type: array, items: {$ref: '#/components/schemas/Release'}}}}]}
+    PageMeta: {type: object, required: [items, page, per_page, has_next], properties: {items: {type: array, items: {}}, page: {type: integer}, per_page: {type: integer}, has_next: {type: boolean}}}
+    RateBucket: {type: object, properties: {limit: {type: integer}, remaining: {type: integer}, used: {type: integer}, reset: {type: integer, format: int64}}}
+    RateLimit: {type: object, properties: {core: {$ref: '#/components/schemas/RateBucket'}, search: {$ref: '#/components/schemas/RateBucket'}}}
+    Favorite: {type: object, required: [id, owner, repo, full_name, html_url, stars, created_at], properties: {id: {type: integer, format: int64}, owner: {type: string}, repo: {type: string}, full_name: {type: string}, description: {type: string}, html_url: {type: string, format: uri}, stars: {type: integer}, language: {type: string}, created_at: {type: string, format: date-time}}}
+    CreateFavorite: {type: object, additionalProperties: false, required: [owner, repo], properties: {owner: {type: string, minLength: 1, maxLength: 100}, repo: {type: string, minLength: 1, maxLength: 100}}}
+    Error: {type: object, required: [error], properties: {error: {type: object, required: [code, message, request_id], properties: {code: {type: string}, message: {type: string}, request_id: {type: string}, details: {type: object, nullable: true, additionalProperties: true}}}}}

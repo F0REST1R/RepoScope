@@ -1,0 +1,9 @@
+export type Owner = { login: string; avatar_url: string; html_url: string }
+export type Repository = { id: number; name: string; full_name: string; description: string; html_url: string; homepage?: string; language?: string; stargazers_count: number; forks_count: number; open_issues_count: number; default_branch: string; archived: boolean; topics: string[]; owner: Owner; license?: { name: string; spdx_id: string }; updated_at: string; pushed_at?: string; health_score?: number; health_summary?: string }
+export type SearchResult = { items: Repository[]; total_count: number; page: number; per_page: number; total_pages: number }
+export type Page<T> = { items: T[]; page: number; per_page: number; has_next: boolean }
+export type Contributor = { login: string; avatar_url: string; html_url: string; contributions: number }
+export type Issue = { number: number; title: string; state: string; html_url: string; user: Owner; labels: { name: string; color: string }[]; updated_at: string }
+export type Release = { id: number; name: string; tag_name: string; html_url: string; prerelease: boolean; published_at?: string }
+export type Favorite = { id: number; owner: string; repo: string; full_name: string; description: string; html_url: string; stars: number; language?: string; created_at: string }
+export type RateLimit = { core: { limit: number; remaining: number; reset: number }; search: { limit: number; remaining: number; reset: number } }
